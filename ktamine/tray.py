@@ -3,12 +3,12 @@
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, QTime, QTimer
+from PyQt6.QtCore import Qt, QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, QTime, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QInputDialog, QLabel, QMenu,
-                             QSystemTrayIcon, QTimeEdit, QVBoxLayout)
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QInputDialog, QLabel, QListWidget,
+                             QListWidgetItem, QMenu, QSystemTrayIcon, QTimeEdit, QVBoxLayout)
 
-from . import APP_NAME
+from . import APP_NAME, apps
 from .inhibitor import Inhibitor
 from .notifier import Notifier
 from .sleepwatch import LockWatcher, SleepWatcher
@@ -76,6 +76,34 @@ def _ask_time(initial):
     return edit.time() if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
+def _ask_app():
+    """Pick one of the running apps; returns (id, name) or None if cancelled."""
+    dlg = QDialog()
+    dlg.setWindowTitle(APP_NAME)
+    dlg.resize(360, 400)
+    listing = QListWidget()
+    for app_id, name, icon in apps.running_apps():
+        item = QListWidgetItem(QIcon.fromTheme(icon) if icon and not icon.startswith("/")
+                               else QIcon(icon), name)
+        item.setData(Qt.ItemDataRole.UserRole, (app_id, name))
+        listing.addItem(item)
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                               | QDialogButtonBox.StandardButton.Cancel)
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    ok.setEnabled(False)
+    listing.currentItemChanged.connect(lambda cur, _: ok.setEnabled(cur is not None))
+    listing.itemDoubleClicked.connect(dlg.accept)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    layout = QVBoxLayout(dlg)
+    layout.addWidget(QLabel("Keep awake while this app is running:"))
+    layout.addWidget(listing)
+    layout.addWidget(buttons)
+    if dlg.exec() != QDialog.DialogCode.Accepted or listing.currentItem() is None:
+        return None
+    return listing.currentItem().data(Qt.ItemDataRole.UserRole)
+
+
 def _icon(name):
     return QIcon(str(ICON_DIR / name))
 
@@ -96,6 +124,8 @@ class TrayApp:
         self.elapsed = QElapsedTimer()
         self.end_timer = QTimer(singleShot=True, timeout=self._expired)
         self.tick = QTimer(interval=1000, timeout=self._refresh)
+        self.watched_app = None  # (id, name) while keeping awake for a running app
+        self.app_timer = QTimer(interval=5000, timeout=self._check_app)
         self.remind_timer = QTimer(singleShot=True, timeout=self._remind)
         self.notifier = Notifier(ICON_DIR / "active.svg")
         self.notifier.action_invoked.connect(self._on_notification_action)
@@ -128,6 +158,7 @@ class TrayApp:
         sub.addSeparator()
         sub.addAction("Custom…").triggered.connect(self._custom)
         sub.addAction("Until a time…").triggered.connect(self._until)
+        sub.addAction("While an app is running…").triggered.connect(self._while_app)
         m.addSeparator()
 
         settings = m.addMenu(QIcon.fromTheme("configure"), "Settings")
@@ -183,15 +214,18 @@ class TrayApp:
         return menu
 
     # --- actions ----------------------------------------------------------
-    def start(self, minutes=None, *, ms=None):
+    def start(self, minutes=None, *, ms=None, app=None):
+        """Start a session: indefinite, timed (`minutes` or `ms`) or while `app` runs."""
         if not self.inhibitor.activate(block_screen=not self.display_act.isChecked()):
             self.tray.showMessage(APP_NAME, "Could not inhibit sleep.",
                                   QSystemTrayIcon.MessageIcon.Warning)
+            self._watch(None)
             self._refresh()
             return
         if ms is None and minutes:
             ms = minutes * 60_000
         self._schedule(ms)
+        self._watch(app)
         self._refresh()
 
     def start_default(self):
@@ -201,6 +235,7 @@ class TrayApp:
     def stop(self):
         self.inhibitor.deactivate()
         self._schedule(None)
+        self._watch(None)
         self.tick.stop()
         self._refresh()
 
@@ -282,6 +317,21 @@ class TrayApp:
             self.settings.setValue("until_time", time.toString("HH:mm"))
             self.start(ms=_ms_until(time))
 
+    def _while_app(self):
+        app = _ask_app()
+        if app is not None:
+            self.start(app=app)
+
+    def _watch(self, app):
+        self.watched_app = app
+        self.app_timer.start() if app else self.app_timer.stop()
+
+    def _check_app(self):
+        app_id, name = self.watched_app
+        if app_id not in apps.running_ids():
+            self.stop()
+            self.tray.showMessage(APP_NAME, f"{name} closed. Keep-awake ended.", self.icon_off)
+
     def toggle(self):
         self.stop() if self.inhibitor.active else self.start_default()
 
@@ -325,6 +375,8 @@ class TrayApp:
         remaining = self._remaining_ms()
         if not active:
             text = "Inactive"
+        elif self.watched_app:
+            text = f"Active — while {self.watched_app[1]} is running"
         elif remaining is None:
             text = "Active — indefinitely"
         else:
