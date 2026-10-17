@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+src/
+pkg/
+ktamine.git/
+*.pkg.tar.*
+.ruff_cache/

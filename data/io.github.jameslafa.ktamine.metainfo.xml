@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jameslafa.ktamine</id>
+  <name>ktamine</name>
+  <summary>Keep your computer awake from the system tray</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.jameslafa">
+    <name>James Lafa</name>
+  </developer>
+  <description>
+    <p>
+      A small tray app for KDE Plasma, inspired by Amphetamine on macOS. Click the
+      coffee cup to stop your computer from sleeping, and click again to let it sleep.
+    </p>
+    <ul>
+      <li>Keep awake indefinitely, for a set time, or until a clock time</li>
+      <li>Keep awake while an app is running or while files are downloading</li>
+      <li>Optionally let the display sleep while the computer stays awake</li>
+      <li>A reminder before a timer ends, with buttons to extend it</li>
+      <li>End the session when you suspend the computer or lock the screen</li>
+      <li>A global shortcut and command-line options</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">ktamine.desktop</launchable>
+  <url type="homepage">https://github.com/jameslafa/ktamine</url>
+  <url type="bugtracker">https://github.com/jameslafa/ktamine/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The tray menu and its settings</caption>
+      <image>https://raw.githubusercontent.com/jameslafa/ktamine/main/docs/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>ktamine</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-10-17"/>
+  </releases>
+</component>
