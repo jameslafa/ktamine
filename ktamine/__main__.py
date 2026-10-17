@@ -39,7 +39,7 @@ def _run_command(tray, command):
     if command == "toggle":
         tray.toggle()
     elif command == "on":
-        tray.start()
+        tray.start_default()
     elif command == "off":
         tray.stop()
 

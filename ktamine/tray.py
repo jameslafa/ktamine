@@ -76,54 +76,67 @@ class TrayApp:
 
         self.toggle_act = m.addAction("Keep awake")
         self.toggle_act.setCheckable(True)
-        self.toggle_act.triggered.connect(lambda on: self.start() if on else self.stop())
+        self.toggle_act.triggered.connect(lambda on: self.start_default() if on else self.stop())
 
         sub = m.addMenu("Keep awake for…")
+        sub.addAction("Indefinitely").triggered.connect(lambda _=False: self.start())
         for label, minutes in PRESETS:
             sub.addAction(label).triggered.connect(lambda _=False, mn=minutes: self.start(mn))
         sub.addSeparator()
         sub.addAction("Custom…").triggered.connect(self._custom)
         m.addSeparator()
 
-        remind = m.addMenu("Remind me before a timer ends")
-        group = QActionGroup(remind)
-        current = self.settings.value("remind_minutes", 5, type=int)
-        for label, minutes in REMIND_CHOICES:
-            act = remind.addAction(label)
-            act.setCheckable(True)
-            act.setChecked(minutes == current)
-            act.triggered.connect(lambda _=False, mn=minutes: self._remind_changed(mn))
-            group.addAction(act)
+        settings = m.addMenu(QIcon.fromTheme("configure"), "Settings")
+        self._radio_menu(settings, "Default duration", [("Indefinitely", 0)] + PRESETS,
+                         self._default_minutes(), self._default_changed)
+        remind = self._radio_menu(settings, "Remind me before a timer ends", REMIND_CHOICES,
+                                  self.settings.value("remind_minutes", 5, type=int),
+                                  self._remind_changed)
         remind.setEnabled(self.notifier.available())
+        settings.addSeparator()
 
-        self.display_act = m.addAction("Allow display to sleep")
+        self.display_act = settings.addAction("Allow display to sleep")
         self.display_act.setCheckable(True)
         self.display_act.setChecked(self.settings.value("allow_display_sleep", False, type=bool))
         self.display_act.toggled.connect(self._display_toggled)
 
-        self.end_on_sleep_act = m.addAction("End session when I put the computer to sleep")
+        self.end_on_sleep_act = settings.addAction("End session when I put the computer to sleep")
         self.end_on_sleep_act.setCheckable(True)
         self.end_on_sleep_act.setChecked(self.settings.value("end_on_manual_sleep", True, type=bool))
         self.end_on_sleep_act.toggled.connect(
             lambda on: self.settings.setValue("end_on_manual_sleep", on))
 
-        self.end_on_lock_act = m.addAction("End session when the screen locks")
+        self.end_on_lock_act = settings.addAction("End session when the screen locks")
         self.end_on_lock_act.setCheckable(True)
         self.end_on_lock_act.setChecked(self.settings.value("end_on_lock", False, type=bool))
         self.end_on_lock_act.setEnabled(self.lock_watcher.connected)
         self.end_on_lock_act.toggled.connect(lambda on: self.settings.setValue("end_on_lock", on))
 
-        self.autostart_act = m.addAction("Start at login")
+        settings.addSeparator()
+
+        self.autostart_act = settings.addAction("Start at login")
         self.autostart_act.setCheckable(True)
         self.autostart_act.setChecked(AUTOSTART_FILE.exists())
         self.autostart_act.toggled.connect(self._autostart_toggled)
 
         if shutil.which("systemsettings"):
-            m.addAction("Change shortcut…").triggered.connect(self._open_shortcut_settings)
+            settings.addAction("Change shortcut…").triggered.connect(self._open_shortcut_settings)
         m.addSeparator()
 
         m.addAction(QIcon.fromTheme("application-exit"), "Quit").triggered.connect(self.quit)
         self.tray.setContextMenu(m)
+
+    @staticmethod
+    def _radio_menu(parent, title, choices, current, on_change):
+        menu = parent.addMenu(title)
+        group = QActionGroup(menu)
+        for label, value in choices:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(value == current)
+            act.triggered.connect(lambda _=False, v=value: on_change(v))
+            group.addAction(act)
+        return menu
 
     # --- actions ----------------------------------------------------------
     def start(self, minutes=None):
@@ -134,6 +147,10 @@ class TrayApp:
             return
         self._schedule(minutes * 60_000 if minutes else None)
         self._refresh()
+
+    def start_default(self):
+        """Start a session for the default duration (left-click, shortcut, --on)."""
+        self.start(self._default_minutes() or None)
 
     def stop(self):
         self.inhibitor.deactivate()
@@ -174,6 +191,13 @@ class TrayApp:
         if key.startswith("extend:"):
             self.extend(int(key.split(":", 1)[1]))
 
+    def _default_minutes(self):
+        return self.settings.value("default_minutes", 0, type=int)  # 0 = indefinitely
+
+    def _default_changed(self, minutes):
+        self.settings.setValue("default_minutes", minutes)
+        self._refresh()
+
     def _remind_changed(self, minutes):
         self.settings.setValue("remind_minutes", minutes)
         remaining = self._remaining_ms()
@@ -201,7 +225,7 @@ class TrayApp:
             self.start(minutes)
 
     def toggle(self):
-        self.stop() if self.inhibitor.active else self.start()
+        self.stop() if self.inhibitor.active else self.start_default()
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -249,5 +273,8 @@ class TrayApp:
             text = f"Active — {_fmt(remaining)} left"
         self.status.setText(text)
         self.toggle_act.setChecked(active)
+        default = self._default_minutes()
+        label = next((l for l, mn in PRESETS if mn == default), None)
+        self.toggle_act.setText(f"Keep awake ({label})" if label and not active else "Keep awake")
         self.tray.setIcon(self.icon_on if active else self.icon_off)
         self.tray.setToolTip(f"{APP_NAME}: {text}")
