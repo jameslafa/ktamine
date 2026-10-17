@@ -16,14 +16,16 @@ on/off for the default duration (indefinitely unless changed in Settings).
   - Indefinitely, 15 minutes – 8 hours, or a custom number of minutes
   - **Until a time…**: until a clock time (tomorrow if it has already passed)
   - **While an app is running…**: pick a running app; the session ends when it closes
-  - **While downloading**: lasts while files in the download folder are still being
-    written, and ends about a minute after the last one finishes
+  - **While downloading in ~/Downloads**: lasts while files in that folder (or its
+    subfolders) are still being written. It ends once nothing has been written for a
+    minute, or 5 minutes for partial downloads like `.part` and `.fdmdownload`, so
+    finished and paused downloads both end it
 - **Settings**
   - **Default duration** for left-click, the shortcut and `--on`
   - **Remind me before a timer ends**: a notification with +15 min … +2 hours buttons
   - **Allow display to sleep**: keep the computer awake but let the screen turn off
   - **End session when I put the computer to sleep** / **when the screen locks**
-  - **Watch for downloads in**: the folder "While downloading" watches (default: Downloads)
+  - **Watch for downloads in**: the folder "While downloading" watches (default: ~/Downloads)
   - **Start at login**
   - **Change shortcut…**: opens System Settings > Shortcuts on ktamine's entry
 

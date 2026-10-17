@@ -182,7 +182,8 @@ class TrayApp:
         sub.addAction("Custom…").triggered.connect(self._custom)
         sub.addAction("Until a time…").triggered.connect(self._until)
         sub.addAction("While an app is running…").triggered.connect(self._while_app)
-        sub.addAction("While downloading").triggered.connect(self._while_downloading)
+        self.while_downloading_act = sub.addAction("")
+        self.while_downloading_act.triggered.connect(self._while_downloading)
         m.addSeparator()
 
         settings = m.addMenu(QIcon.fromTheme("configure"), "Settings")
@@ -358,7 +359,7 @@ class TrayApp:
         folder = self._download_dir()
         self.start(condition=Condition(
             "while downloading", lambda: downloads.in_progress(folder),
-            "Downloads finished. Keep-awake ended.", grace_ms=60_000))
+            "No download activity. Keep-awake ended.", grace_ms=60_000))
 
     def _download_dir(self):
         return Path(self.settings.value("download_dir", "") or downloads.download_dir())
@@ -366,6 +367,7 @@ class TrayApp:
     def _show_download_dir(self):
         path = str(self._download_dir()).replace(str(Path.home()), "~", 1)
         self.download_dir_act.setText(f"Watch for downloads in: {path}…")
+        self.while_downloading_act.setText(f"While downloading in {path}")
 
     def _choose_download_dir(self):
         folder = QFileDialog.getExistingDirectory(None, "Folder to watch for downloads",

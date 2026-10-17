@@ -9,6 +9,8 @@ come before the id).
 
 import os
 import re
+import shlex
+import shutil
 from pathlib import Path
 
 from PyQt6.QtCore import QStandardPaths
@@ -71,17 +73,13 @@ def running_ids():
     return ids
 
 
-def _desktop_entry(app_id):
-    """(Name, Icon) from the app's desktop file, or None if there isn't one to show."""
-    path = QStandardPaths.locate(QStandardPaths.StandardLocation.ApplicationsLocation,
-                                 f"{app_id}.desktop")
-    if not path:
-        return None
+def _read_entry(path):
+    """Key/values of a desktop file's [Desktop Entry] group."""
     fields, in_entry = {}, False
     try:
         lines = Path(path).read_text(errors="ignore").splitlines()
     except OSError:
-        return None
+        return {}
     for line in lines:
         line = line.strip()
         if line.startswith("["):
@@ -89,6 +87,49 @@ def _desktop_entry(app_id):
         elif in_entry and "=" in line:
             key, _, value = line.partition("=")
             fields.setdefault(key.strip(), value.strip())
+    return fields
+
+
+def _exec_binary(fields):
+    """Resolved path of the program a desktop entry runs, or None."""
+    try:
+        args = shlex.split(fields.get("Exec", ""))
+    except ValueError:
+        return None
+    while args and (args[0] == "env" or "=" in args[0]):
+        args.pop(0)
+    if not args:
+        return None
+    return os.path.realpath(shutil.which(args[0]) or args[0])
+
+
+def _menu_entry_running(binary):
+    """The app-menu entry that runs `binary`, if any."""
+    for folder in QStandardPaths.standardLocations(
+            QStandardPaths.StandardLocation.ApplicationsLocation):
+        for path in Path(folder).glob("*.desktop"):
+            fields = _read_entry(path)
+            if fields.get("NoDisplay") != "true" and _exec_binary(fields) == binary:
+                return fields
+    return None
+
+
+def _desktop_entry(app_id):
+    """(Name, Icon) for an app id, or None if there isn't a desktop file to show."""
+    path = QStandardPaths.locate(QStandardPaths.StandardLocation.ApplicationsLocation,
+                                 f"{app_id}.desktop")
+    fields = _read_entry(path) if path else {}
+    if not fields:
+        # Started from a login autostart entry, which only lives in an autostart folder.
+        for folder in QStandardPaths.standardLocations(
+                QStandardPaths.StandardLocation.GenericConfigLocation):
+            autostart = Path(folder, "autostart", f"{app_id}.desktop")
+            if autostart.is_file():
+                fields = _read_entry(autostart)
+                # Autostart entries are often bare; prefer the app's menu name and icon.
+                binary = _exec_binary(fields)
+                fields = (binary and _menu_entry_running(binary)) or fields
+                break
     if fields.get("Hidden") == "true" or "Name" not in fields:
         return None
     return fields["Name"], fields.get("Icon", "")

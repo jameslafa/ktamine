@@ -1,8 +1,8 @@
 """Tell whether something is still downloading into the Downloads folder.
 
-Works for any downloader: a download is "in progress" while a file there is
-still being written. Known partial-download files get extra slack so a slow or
-briefly stalled transfer doesn't count as finished.
+Works for any downloader: a download is "in progress" while a file there, or in
+a subfolder up to a few levels deep, is still being written. Known partial-download
+files get extra slack so a slow or briefly stalled transfer doesn't count as finished.
 """
 
 import os
@@ -21,7 +21,7 @@ def download_dir():
     return Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation))
 
 
-def _files(folder, depth=2):
+def _files(folder, depth=6):
     try:
         with os.scandir(folder) as it:
             for entry in it:
