@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
 from . import APP_NAME
 from .inhibitor import Inhibitor
 from .notifier import Notifier
-from .sleepwatch import SleepWatcher
+from .sleepwatch import LockWatcher, SleepWatcher
 
 ICON_DIR = Path(__file__).parent / "icons"
 LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / APP_NAME
@@ -57,6 +57,8 @@ class TrayApp:
         self.notifier.action_invoked.connect(self._on_notification_action)
         self.sleep_watcher = SleepWatcher()
         self.sleep_watcher.going_to_sleep.connect(self._on_manual_sleep)
+        self.lock_watcher = LockWatcher()
+        self.lock_watcher.locked.connect(self._on_lock)
 
         self.tray = QSystemTrayIcon(self.icon_off)
         self.tray.activated.connect(self._on_activated)
@@ -103,6 +105,12 @@ class TrayApp:
         self.end_on_sleep_act.setChecked(self.settings.value("end_on_manual_sleep", True, type=bool))
         self.end_on_sleep_act.toggled.connect(
             lambda on: self.settings.setValue("end_on_manual_sleep", on))
+
+        self.end_on_lock_act = m.addAction("End session when the screen locks")
+        self.end_on_lock_act.setCheckable(True)
+        self.end_on_lock_act.setChecked(self.settings.value("end_on_lock", False, type=bool))
+        self.end_on_lock_act.setEnabled(self.lock_watcher.connected)
+        self.end_on_lock_act.toggled.connect(lambda on: self.settings.setValue("end_on_lock", on))
 
         self.autostart_act = m.addAction("Start at login")
         self.autostart_act.setCheckable(True)
@@ -176,6 +184,10 @@ class TrayApp:
     def _on_manual_sleep(self):
         # Automatic sleep is blocked while active, so a suspend now was user-initiated.
         if self.inhibitor.active and self.end_on_sleep_act.isChecked():
+            self.stop()
+
+    def _on_lock(self):
+        if self.inhibitor.active and self.end_on_lock_act.isChecked():
             self.stop()
 
     def _custom(self):
