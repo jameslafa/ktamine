@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ktamine
+GenericName=Keep Awake
+Comment=Prevent your computer from sleeping
+Exec=ktamine
+Icon=system-suspend-inhibited
+Terminal=false
+Categories=Utility;
+Keywords=sleep;awake;caffeine;amphetamine;inhibit;
