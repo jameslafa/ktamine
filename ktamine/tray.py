@@ -1,14 +1,25 @@
 """System tray UI: on/off toggle, timer presets, settings."""
 
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, QTime, QTimer
-from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLabel, QListWidget,
-                             QListWidgetItem, QMenu, QSystemTrayIcon, QTimeEdit, QVBoxLayout)
+from PyQt6.QtCore import QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, Qt, QTime, QTimer
+from PyQt6.QtGui import QActionGroup, QIcon
+from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QSystemTrayIcon,
+    QTimeEdit,
+    QVBoxLayout,
+)
 
 from . import APP_NAME, apps, downloads
 from .inhibitor import Inhibitor
@@ -190,7 +201,8 @@ class TrayApp:
 
         self.end_on_sleep_act = settings.addAction("End session when I put the computer to sleep")
         self.end_on_sleep_act.setCheckable(True)
-        self.end_on_sleep_act.setChecked(self.settings.value("end_on_manual_sleep", True, type=bool))
+        self.end_on_sleep_act.setChecked(
+            self.settings.value("end_on_manual_sleep", True, type=bool))
         self.end_on_sleep_act.toggled.connect(
             lambda on: self.settings.setValue("end_on_manual_sleep", on))
 
@@ -343,8 +355,9 @@ class TrayApp:
 
     def _while_downloading(self):
         # The grace period leaves time to start the download after the session.
+        folder = self._download_dir()
         self.start(condition=Condition(
-            "while downloading", lambda folder=self._download_dir(): downloads.in_progress(folder),
+            "while downloading", lambda: downloads.in_progress(folder),
             "Downloads finished. Keep-awake ended.", grace_ms=60_000))
 
     def _download_dir(self):
@@ -432,7 +445,7 @@ class TrayApp:
         self.status.setText(text)
         self.toggle_act.setChecked(active)
         default = self._default_minutes()
-        label = next((l for l, mn in PRESETS if mn == default), None)
+        label = next((text for text, mn in PRESETS if mn == default), None)
         self.toggle_act.setText(f"Keep awake ({label})" if label and not active else "Keep awake")
         self.tray.setIcon(self.icon_on if active else self.icon_off)
         self.tray.setToolTip(f"{APP_NAME}: {text}")

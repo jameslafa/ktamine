@@ -31,7 +31,8 @@ class Notifier(QObject):
     def show(self, summary, body, actions=()):
         """Show (or replace) our notification. `actions` is [(key, label), ...]."""
         # Action keys/labels must go out as a string array (as), not a variant list (av).
-        flat = QDBusArgument([s for pair in actions for s in pair], QMetaType.Type.QStringList.value)
+        flat = QDBusArgument([s for pair in actions for s in pair],
+                             QMetaType.Type.QStringList.value)
         reply = self._iface.call("Notify", APP_NAME, _uint(self._id), self._icon,
                                  summary, body, flat, {}, 0)
         if reply.type() == QDBusMessage.MessageType.ReplyMessage:

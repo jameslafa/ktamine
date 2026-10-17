@@ -1,0 +1,20 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.17.1 PyQt6
+      - run: ruff check .
+      - name: Import every module
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -c "import ktamine.__main__, ktamine.apps, ktamine.downloads, ktamine.tray"
