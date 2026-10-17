@@ -1,14 +1,16 @@
 """System tray UI: on/off toggle, timer presets, settings."""
 
 import shutil
+from dataclasses import dataclass
+from typing import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, QTime, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QInputDialog, QLabel, QListWidget,
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLabel, QListWidget,
                              QListWidgetItem, QMenu, QSystemTrayIcon, QTimeEdit, QVBoxLayout)
 
-from . import APP_NAME, apps
+from . import APP_NAME, apps, downloads
 from .inhibitor import Inhibitor
 from .notifier import Notifier
 from .sleepwatch import LockWatcher, SleepWatcher
@@ -32,6 +34,15 @@ Terminal=false
 Categories=Utility;
 X-GNOME-Autostart-enabled=true
 """
+
+
+@dataclass
+class Condition:
+    """Keep awake while `holds()` is true; checked every few seconds."""
+    label: str           # "while Firefox is running"
+    holds: Callable[[], bool]
+    ended: str           # notification once it stops holding
+    grace_ms: int = 0    # don't end within this long of starting
 
 
 def _ms_until(time):
@@ -124,8 +135,9 @@ class TrayApp:
         self.elapsed = QElapsedTimer()
         self.end_timer = QTimer(singleShot=True, timeout=self._expired)
         self.tick = QTimer(interval=1000, timeout=self._refresh)
-        self.watched_app = None  # (id, name) while keeping awake for a running app
-        self.app_timer = QTimer(interval=5000, timeout=self._check_app)
+        self.condition = None
+        self.condition_age = QElapsedTimer()
+        self.condition_timer = QTimer(interval=5000, timeout=self._check_condition)
         self.remind_timer = QTimer(singleShot=True, timeout=self._remind)
         self.notifier = Notifier(ICON_DIR / "active.svg")
         self.notifier.action_invoked.connect(self._on_notification_action)
@@ -159,6 +171,7 @@ class TrayApp:
         sub.addAction("Custom…").triggered.connect(self._custom)
         sub.addAction("Until a time…").triggered.connect(self._until)
         sub.addAction("While an app is running…").triggered.connect(self._while_app)
+        sub.addAction("While downloading").triggered.connect(self._while_downloading)
         m.addSeparator()
 
         settings = m.addMenu(QIcon.fromTheme("configure"), "Settings")
@@ -187,6 +200,9 @@ class TrayApp:
         self.end_on_lock_act.setEnabled(self.lock_watcher.connected)
         self.end_on_lock_act.toggled.connect(lambda on: self.settings.setValue("end_on_lock", on))
 
+        self.download_dir_act = settings.addAction("")
+        self.download_dir_act.triggered.connect(self._choose_download_dir)
+        self._show_download_dir()
         settings.addSeparator()
 
         self.autostart_act = settings.addAction("Start at login")
@@ -214,8 +230,8 @@ class TrayApp:
         return menu
 
     # --- actions ----------------------------------------------------------
-    def start(self, minutes=None, *, ms=None, app=None):
-        """Start a session: indefinite, timed (`minutes` or `ms`) or while `app` runs."""
+    def start(self, minutes=None, *, ms=None, condition=None):
+        """Start a session: indefinite, timed (`minutes` or `ms`) or while `condition` holds."""
         if not self.inhibitor.activate(block_screen=not self.display_act.isChecked()):
             self.tray.showMessage(APP_NAME, "Could not inhibit sleep.",
                                   QSystemTrayIcon.MessageIcon.Warning)
@@ -225,7 +241,7 @@ class TrayApp:
         if ms is None and minutes:
             ms = minutes * 60_000
         self._schedule(ms)
-        self._watch(app)
+        self._watch(condition)
         self._refresh()
 
     def start_default(self):
@@ -320,17 +336,47 @@ class TrayApp:
     def _while_app(self):
         app = _ask_app()
         if app is not None:
-            self.start(app=app)
+            app_id, name = app
+            self.start(condition=Condition(
+                f"while {name} is running", lambda: app_id in apps.running_ids(),
+                f"{name} closed. Keep-awake ended."))
 
-    def _watch(self, app):
-        self.watched_app = app
-        self.app_timer.start() if app else self.app_timer.stop()
+    def _while_downloading(self):
+        # The grace period leaves time to start the download after the session.
+        self.start(condition=Condition(
+            "while downloading", lambda folder=self._download_dir(): downloads.in_progress(folder),
+            "Downloads finished. Keep-awake ended.", grace_ms=60_000))
 
-    def _check_app(self):
-        app_id, name = self.watched_app
-        if app_id not in apps.running_ids():
-            self.stop()
-            self.tray.showMessage(APP_NAME, f"{name} closed. Keep-awake ended.", self.icon_off)
+    def _download_dir(self):
+        return Path(self.settings.value("download_dir", "") or downloads.download_dir())
+
+    def _show_download_dir(self):
+        path = str(self._download_dir()).replace(str(Path.home()), "~", 1)
+        self.download_dir_act.setText(f"Watch for downloads in: {path}…")
+
+    def _choose_download_dir(self):
+        folder = QFileDialog.getExistingDirectory(None, "Folder to watch for downloads",
+                                                  str(self._download_dir()))
+        if folder:
+            # Keep following the system Downloads folder unless another one is picked.
+            same = Path(folder) == downloads.download_dir()
+            self.settings.setValue("download_dir", "" if same else folder)
+            self._show_download_dir()
+
+    def _watch(self, condition):
+        self.condition = condition
+        if condition:
+            self.condition_age.start()
+            self.condition_timer.start()
+        else:
+            self.condition_timer.stop()
+
+    def _check_condition(self):
+        c = self.condition
+        if self.condition_age.elapsed() < c.grace_ms or c.holds():
+            return
+        self.stop()
+        self.tray.showMessage(APP_NAME, c.ended, self.icon_off)
 
     def toggle(self):
         self.stop() if self.inhibitor.active else self.start_default()
@@ -375,8 +421,8 @@ class TrayApp:
         remaining = self._remaining_ms()
         if not active:
             text = "Inactive"
-        elif self.watched_app:
-            text = f"Active — while {self.watched_app[1]} is running"
+        elif self.condition:
+            text = f"Active — {self.condition.label}"
         elif remaining is None:
             text = "Active — indefinitely"
         else:
