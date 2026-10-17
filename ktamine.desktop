@@ -6,5 +6,12 @@ Comment=Prevent your computer from sleeping
 Exec=ktamine
 Icon=ktamine
 Terminal=false
+StartupNotify=false
 Categories=Utility;
 Keywords=sleep;awake;caffeine;amphetamine;inhibit;
+Actions=toggle;
+
+[Desktop Action toggle]
+Name=Toggle keep-awake
+Exec=ktamine --toggle
+X-KDE-Shortcuts=Meta+Shift+K

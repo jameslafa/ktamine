@@ -136,9 +136,12 @@ class TrayApp:
         if ok:
             self.start(minutes)
 
+    def toggle(self):
+        self.stop() if self.inhibitor.active else self.start()
+
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self.stop() if self.inhibitor.active else self.start()
+            self.toggle()
 
     def _display_toggled(self, allow):
         self.settings.setValue("allow_display_sleep", allow)
