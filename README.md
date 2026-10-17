@@ -72,10 +72,24 @@ Or install for the current user only, into `~/.local` (re-run after each update)
 
 ```sh
 ./install.sh              # make sure ~/.local/bin is on PATH
-./install.sh --uninstall  # remove it again
 ```
 
 To try it without installing: `python3 -m ktamine`.
+
+## Uninstall
+
+Quit ktamine first, then:
+
+```sh
+sudo pacman -R ktamine      # if installed with makepkg
+./install.sh --uninstall    # if installed with install.sh
+```
+
+`install.sh --uninstall` also removes the "Start at login" entry. With the package,
+turn off **Settings → Start at login** before removing it, or delete
+`~/.config/autostart/ktamine.desktop` afterwards.
+
+Your settings stay in `~/.config/ktamine/`; delete that folder to remove them too.
 
 ## License
 
