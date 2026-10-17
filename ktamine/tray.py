@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
 
 from . import APP_NAME
 from .inhibitor import Inhibitor
+from .sleepwatch import SleepWatcher
 
 ICON_DIR = Path(__file__).parent / "icons"
 LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / APP_NAME
@@ -47,6 +48,8 @@ class TrayApp:
         self.elapsed = QElapsedTimer()
         self.end_timer = QTimer(singleShot=True, timeout=self._expired)
         self.tick = QTimer(interval=1000, timeout=self._refresh)
+        self.sleep_watcher = SleepWatcher()
+        self.sleep_watcher.going_to_sleep.connect(self._on_manual_sleep)
 
         self.tray = QSystemTrayIcon(self.icon_off)
         self.tray.activated.connect(self._on_activated)
@@ -76,6 +79,12 @@ class TrayApp:
         self.display_act.setCheckable(True)
         self.display_act.setChecked(self.settings.value("allow_display_sleep", False, type=bool))
         self.display_act.toggled.connect(self._display_toggled)
+
+        self.end_on_sleep_act = m.addAction("End session when I put the computer to sleep")
+        self.end_on_sleep_act.setCheckable(True)
+        self.end_on_sleep_act.setChecked(self.settings.value("end_on_manual_sleep", True, type=bool))
+        self.end_on_sleep_act.toggled.connect(
+            lambda on: self.settings.setValue("end_on_manual_sleep", on))
 
         self.autostart_act = m.addAction("Start at login")
         self.autostart_act.setCheckable(True)
@@ -115,6 +124,11 @@ class TrayApp:
         self.stop()
         self.tray.showMessage(APP_NAME, "Keep-awake ended. Your computer can sleep again.",
                               self.icon_off)
+
+    def _on_manual_sleep(self):
+        # Automatic sleep is blocked while active, so a suspend now was user-initiated.
+        if self.inhibitor.active and self.end_on_sleep_act.isChecked():
+            self.stop()
 
     def _custom(self):
         minutes, ok = QInputDialog.getInt(None, APP_NAME, "Keep awake for (minutes):",
