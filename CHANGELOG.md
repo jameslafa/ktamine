@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — 2026-10-17
+
+- "While downloading" now sees downloads in nested folders (up to six levels
+  deep), e.g. Free Download Manager's `Downloads/<name>/<host>/`; before, the
+  session could end while a download was still running
+- "While an app is running…" now lists apps started by a login autostart entry,
+  such as Free Download Manager
+- The menu item shows the watched folder: "While downloading in ~/Downloads"
+- The end notification says "No download activity", since pausing a download
+  also ends the session
+
 ## 0.1.0 — 2026-10-17
 
 First release.
