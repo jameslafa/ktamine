@@ -1,8 +1,9 @@
 """System tray UI: on/off toggle, timer presets, settings."""
 
+import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings, QTimer, QElapsedTimer
+from PyQt6.QtCore import QElapsedTimer, QProcess, QSettings, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
 
@@ -116,6 +117,9 @@ class TrayApp:
         self.autostart_act.setCheckable(True)
         self.autostart_act.setChecked(AUTOSTART_FILE.exists())
         self.autostart_act.toggled.connect(self._autostart_toggled)
+
+        if shutil.which("systemsettings"):
+            m.addAction("Change shortcut…").triggered.connect(self._open_shortcut_settings)
         m.addSeparator()
 
         m.addAction(QIcon.fromTheme("application-exit"), "Quit").triggered.connect(self.quit)
@@ -217,6 +221,10 @@ class TrayApp:
             AUTOSTART_FILE.write_text(DESKTOP_ENTRY)
         else:
             AUTOSTART_FILE.unlink(missing_ok=True)
+
+    def _open_shortcut_settings(self):
+        # Opens System Settings > Shortcuts with our desktop file's actions selected.
+        QProcess.startDetached("systemsettings", ["kcm_keys", "--args", f"{APP_NAME}.desktop"])
 
     def quit(self):
         self.stop()
