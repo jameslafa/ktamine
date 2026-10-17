@@ -3,9 +3,10 @@
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import QElapsedTimer, QProcess, QSettings, QTimer
+from PyQt6.QtCore import QDateTime, QElapsedTimer, QLocale, QProcess, QSettings, QTime, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QInputDialog, QLabel, QMenu,
+                             QSystemTrayIcon, QTimeEdit, QVBoxLayout)
 
 from . import APP_NAME
 from .inhibitor import Inhibitor
@@ -31,6 +32,48 @@ Terminal=false
 Categories=Utility;
 X-GNOME-Autostart-enabled=true
 """
+
+
+def _ms_until(time):
+    """Milliseconds from now until the next occurrence of `time` (tomorrow if passed)."""
+    now = QDateTime.currentDateTime()
+    target = QDateTime(now.date(), time)
+    if target <= now:
+        target = target.addDays(1)
+    return now.msecsTo(target)
+
+
+def _short_time(dt):
+    return QLocale().toString(dt.time(), QLocale.FormatType.ShortFormat)
+
+
+def _ask_time(initial):
+    """Ask for a clock time; returns a QTime or None if cancelled."""
+    dlg = QDialog()
+    dlg.setWindowTitle(APP_NAME)
+    edit = QTimeEdit(initial)
+    edit.setDisplayFormat(QLocale().timeFormat(QLocale.FormatType.ShortFormat))
+    hint = QLabel()
+
+    def update_hint(t):
+        ms = _ms_until(t)
+        day = "today" if QDateTime.currentDateTime().addMSecs(ms).date() == \
+            QDateTime.currentDateTime().date() else "tomorrow"
+        hint.setText(f"{day}, in {ms // 3_600_000} h {ms // 60_000 % 60:02d} min")
+
+    edit.timeChanged.connect(update_hint)
+    update_hint(initial)
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                               | QDialogButtonBox.StandardButton.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    layout = QVBoxLayout(dlg)
+    layout.addWidget(QLabel("Keep awake until:"))
+    layout.addWidget(edit)
+    layout.addWidget(hint)
+    layout.addWidget(buttons)
+    edit.setFocus()
+    return edit.time() if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
 def _icon(name):
@@ -84,6 +127,7 @@ class TrayApp:
             sub.addAction(label).triggered.connect(lambda _=False, mn=minutes: self.start(mn))
         sub.addSeparator()
         sub.addAction("Custom…").triggered.connect(self._custom)
+        sub.addAction("Until a time…").triggered.connect(self._until)
         m.addSeparator()
 
         settings = m.addMenu(QIcon.fromTheme("configure"), "Settings")
@@ -139,13 +183,15 @@ class TrayApp:
         return menu
 
     # --- actions ----------------------------------------------------------
-    def start(self, minutes=None):
+    def start(self, minutes=None, *, ms=None):
         if not self.inhibitor.activate(block_screen=not self.display_act.isChecked()):
             self.tray.showMessage(APP_NAME, "Could not inhibit sleep.",
                                   QSystemTrayIcon.MessageIcon.Warning)
             self._refresh()
             return
-        self._schedule(minutes * 60_000 if minutes else None)
+        if ms is None and minutes:
+            ms = minutes * 60_000
+        self._schedule(ms)
         self._refresh()
 
     def start_default(self):
@@ -224,6 +270,18 @@ class TrayApp:
         if ok:
             self.start(minutes)
 
+    def _until(self):
+        last = self.settings.value("until_time", "")
+        initial = QTime.fromString(last, "HH:mm") if last else QTime()
+        if not initial.isValid():
+            # Next full hour, at least 30 minutes away.
+            t = QTime.currentTime().addSecs(30 * 60)
+            initial = QTime(t.hour(), 0).addSecs(3600)
+        time = _ask_time(initial)
+        if time is not None:
+            self.settings.setValue("until_time", time.toString("HH:mm"))
+            self.start(ms=_ms_until(time))
+
     def toggle(self):
         self.stop() if self.inhibitor.active else self.start_default()
 
@@ -270,7 +328,9 @@ class TrayApp:
         elif remaining is None:
             text = "Active — indefinitely"
         else:
-            text = f"Active — {_fmt(remaining)} left"
+            # Round to the nearest minute so timer jitter doesn't flip 17:30 to 17:29.
+            end = _short_time(QDateTime.currentDateTime().addMSecs(remaining + 30_000))
+            text = f"Active — until {end} ({_fmt(remaining)} left)"
         self.status.setText(text)
         self.toggle_act.setChecked(active)
         default = self._default_minutes()
