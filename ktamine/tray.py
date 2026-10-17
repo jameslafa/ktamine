@@ -21,15 +21,15 @@ Type=Application
 Name=ktamine
 Comment=Keep your computer awake
 Exec="{LAUNCHER}"
-Icon=system-suspend-inhibited
+Icon={ICON_DIR / "active.svg"}
 Terminal=false
 Categories=Utility;
 X-GNOME-Autostart-enabled=true
 """
 
 
-def _icon(theme_name, fallback):
-    return QIcon.fromTheme(theme_name, QIcon(str(ICON_DIR / fallback)))
+def _icon(name):
+    return QIcon(str(ICON_DIR / name))
 
 
 def _fmt(ms):
@@ -41,8 +41,8 @@ class TrayApp:
     def __init__(self):
         self.settings = QSettings(APP_NAME, APP_NAME)
         self.inhibitor = Inhibitor()
-        self.icon_on = _icon("system-suspend-inhibited", "active.svg")
-        self.icon_off = _icon("system-suspend-uninhibited", "inactive.svg")
+        self.icon_on = _icon("active.svg")
+        self.icon_off = _icon("inactive.svg")
 
         self.duration_ms = None  # None = indefinite
         self.elapsed = QElapsedTimer()
