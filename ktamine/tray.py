@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
 
 from . import APP_NAME
 from .inhibitor import Inhibitor
+from .notifier import Notifier
 from .sleepwatch import SleepWatcher
 
 ICON_DIR = Path(__file__).parent / "icons"
@@ -15,6 +16,9 @@ LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / APP_NAME
 AUTOSTART_FILE = Path.home() / ".config" / "autostart" / f"{APP_NAME}.desktop"
 PRESETS = [("15 minutes", 15), ("30 minutes", 30), ("1 hour", 60),
            ("2 hours", 120), ("4 hours", 240), ("8 hours", 480)]
+REMIND_CHOICES = [("Off", 0), ("1 minute before", 1), ("5 minutes before", 5),
+                  ("10 minutes before", 10), ("15 minutes before", 15)]
+EXTEND_CHOICES = [("+15 min", 15), ("+30 min", 30), ("+1 hour", 60), ("+2 hours", 120)]
 
 DESKTOP_ENTRY = f"""[Desktop Entry]
 Type=Application
@@ -48,6 +52,9 @@ class TrayApp:
         self.elapsed = QElapsedTimer()
         self.end_timer = QTimer(singleShot=True, timeout=self._expired)
         self.tick = QTimer(interval=1000, timeout=self._refresh)
+        self.remind_timer = QTimer(singleShot=True, timeout=self._remind)
+        self.notifier = Notifier(ICON_DIR / "active.svg")
+        self.notifier.action_invoked.connect(self._on_notification_action)
         self.sleep_watcher = SleepWatcher()
         self.sleep_watcher.going_to_sleep.connect(self._on_manual_sleep)
 
@@ -74,6 +81,17 @@ class TrayApp:
         sub.addSeparator()
         sub.addAction("Custom…").triggered.connect(self._custom)
         m.addSeparator()
+
+        remind = m.addMenu("Remind me before a timer ends")
+        group = QActionGroup(remind)
+        current = self.settings.value("remind_minutes", 5, type=int)
+        for label, minutes in REMIND_CHOICES:
+            act = remind.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(minutes == current)
+            act.triggered.connect(lambda _=False, mn=minutes: self._remind_changed(mn))
+            group.addAction(act)
+        remind.setEnabled(self.notifier.available())
 
         self.display_act = m.addAction("Allow display to sleep")
         self.display_act.setCheckable(True)
@@ -102,23 +120,53 @@ class TrayApp:
                                   QSystemTrayIcon.MessageIcon.Warning)
             self._refresh()
             return
-        self.end_timer.stop()
-        self.duration_ms = None
-        if minutes:
-            self.duration_ms = minutes * 60_000
-            self.elapsed.start()
-            self.end_timer.start(self.duration_ms)
-            self.tick.start()
-        else:
-            self.tick.stop()
+        self._schedule(minutes * 60_000 if minutes else None)
         self._refresh()
 
     def stop(self):
         self.inhibitor.deactivate()
-        self.end_timer.stop()
+        self._schedule(None)
         self.tick.stop()
-        self.duration_ms = None
         self._refresh()
+
+    def extend(self, minutes):
+        remaining = self._remaining_ms()
+        if self.inhibitor.active and remaining is not None:
+            self._schedule(remaining + minutes * 60_000)
+            self._refresh()
+
+    def _schedule(self, ms):
+        """(Re)arm the end and reminder timers for `ms` from now; None = indefinite."""
+        self.end_timer.stop()
+        self.remind_timer.stop()
+        self.notifier.close()
+        self.duration_ms = ms
+        if ms is None:
+            self.tick.stop()
+            return
+        self.elapsed.start()
+        self.end_timer.start(ms)
+        self.tick.start()
+        lead = self.settings.value("remind_minutes", 5, type=int) * 60_000
+        if lead and ms > lead:
+            self.remind_timer.start(ms - lead)
+
+    def _remind(self):
+        minutes = round(self._remaining_ms() / 60_000)
+        when = "in 1 minute" if minutes == 1 else f"in {minutes} minutes"
+        self.notifier.show("Keep-awake ending soon",
+                           f"Your computer will be allowed to sleep {when}.",
+                           [(f"extend:{mn}", label) for label, mn in EXTEND_CHOICES])
+
+    def _on_notification_action(self, key):
+        if key.startswith("extend:"):
+            self.extend(int(key.split(":", 1)[1]))
+
+    def _remind_changed(self, minutes):
+        self.settings.setValue("remind_minutes", minutes)
+        remaining = self._remaining_ms()
+        if self.inhibitor.active and remaining is not None:
+            self._schedule(remaining)
 
     def _expired(self):
         self.stop()
@@ -149,9 +197,7 @@ class TrayApp:
             remaining = self._remaining_ms()
             self.inhibitor.activate(block_screen=not allow)
             if remaining is not None:
-                self.duration_ms = remaining
-                self.elapsed.start()
-                self.end_timer.start(remaining)
+                self._schedule(remaining)
 
     def _autostart_toggled(self, on):
         if on:
